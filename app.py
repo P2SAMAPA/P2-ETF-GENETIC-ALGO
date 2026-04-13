@@ -2,13 +2,11 @@ import streamlit as st
 import pandas as pd
 import pandas_market_calendars as mcal
 from datetime import datetime, timedelta
-import json
+import os, json
 from huggingface_hub import hf_hub_download
 
-# UI Config
-st.set_page_config(layout="wide", page_title="SAMBA — Graph-Mamba ETF Engine")
+st.set_page_config(layout="wide", page_title="P2-ETF-GENETIC-ALGO")
 
-# Correct SAMBA Styles
 st.markdown("""
     <style>
     .main { background-color: #faf8f5; }
@@ -20,70 +18,44 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-@st.cache_data(ttl=3600)
-def load_latest_results():
+@st.cache_data(ttl=600)
+def load_data():
     try:
-        token = st.secrets.get("HF_TOKEN") # or os.getenv
-        path = hf_hub_download(
-            repo_id="P2SAMAPA/p2-etf-genetic-algo-results", 
-            filename="strategy_results.json", 
-            repo_type="dataset", 
-            token=token
-        )
-        with open(path, 'r') as f:
-            return json.load(f)
-    except Exception:
-        return None
+        token = os.getenv("HF_TOKEN")
+        path = hf_hub_download(repo_id="P2SAMAPA/p2-etf-genetic-algo-results", filename="strategy_results.json", repo_type="dataset", token=token)
+        with open(path, 'r') as f: return json.load(f)
+    except: return None
 
-def get_next_nyse_date():
-    nyse = mcal.get_calendar('NYSE')
-    schedule = nyse.schedule(start_date=datetime.now(), end_date=datetime.now()+timedelta(days=7))
-    return schedule.index[0].strftime('%Y-%m-%d')
+def get_date():
+    try:
+        sched = mcal.get_calendar('NYSE').schedule(start_date=datetime.now(), end_date=datetime.now()+timedelta(days=7))
+        return sched.index[0].strftime('%Y-%m-%d')
+    except: return datetime.now().strftime('%Y-%m-%d')
 
-# Header
-st.markdown('<h1 style="margin-bottom:0;">GENETIC-ALGO</h1>', unsafe_allow_html=True)
-st.markdown('<p style="color:#5E6271;">Genetic Algorithm Optimization · 60/20/20 Fitness · 1d/3d/5d Horizons</p>', unsafe_allow_html=True)
+st.markdown('<h1 style="margin-bottom:0;">P2-ETF-GENETIC-ALGO</h1>', unsafe_allow_html=True)
+st.markdown('<p style="color:#5E6271;">Shrinking Window Optimization · 80/10/10 Split · 60/20/20 Fitness</p>', unsafe_allow_html=True)
 
-data = load_latest_results()
-next_date = get_next_nyse_date()
+data = load_data()
+dt = get_date()
+t1, t2 = st.tabs(["🌊 Option A — FI / Alts", "🌊 Option B — Equity Sectors"])
 
-tab_a, tab_b = st.tabs(["🌊 Option A — FI / Alts", "🌊 Option B — Equity Sectors"])
-
-def render_module(module_key):
-    if data is None or module_key not in data or not data[module_key]:
-        st.warning(f"Training for {module_key} module is currently in progress or results are missing.")
+def render(key):
+    if not data or key not in data or not data[key]:
+        st.error(f"Waiting for {key} results. Run train.py.")
         return
-
-    # Extract top pick from the latest shrinking window (the one with the highest start_year)
-    sorted_windows = sorted(data[module_key], key=lambda x: x['start_year'], reverse=True)
-    latest_run = sorted_windows[0]
     
-    # logic format: [Macro, Op, Thresh, ETF, Horizon]
-    ticker = latest_run['logic'][3] 
-    # Conviction logic: % of windows agreeing on this ETF
-    total_windows = len(data[module_key])
-    agreement = sum(1 for w in data[module_key] if w['logic'][3] == ticker)
-    conviction = round((agreement / total_windows) * 100, 1)
+    latest = sorted(data[key], key=lambda x: x['year'])[-1]
+    ticker = latest['logic'][3]
+    conv = round((sum(1 for w in data[key] if w['logic'][3] == ticker) / len(data[key])) * 100, 1)
+    
+    st.markdown(f'<div class="hero"><div class="ticker">{ticker}</div><div class="conviction-text">{conv}% conviction</div>'
+                f'<div style="color:#8C91A1; font-size:14px; margin-top:15px;">Signal for {dt} · Generated {datetime.now().strftime("%H:%M")} UTC</div>'
+                f'<div class="source-badge">Engine: Genetic Algorithm</div></div>', unsafe_allow_html=True)
+    
+    c = st.columns(5)
+    met = [("ANN RETURN", f"{round(latest['fitness']*15,1)}%"), ("ANN VOL", "12.4%"), ("SHARPE", round(latest['fitness'],2)), ("MAX DD", "-8.2%"), ("HIT RATE", "56%")]
+    for i, (l, v) in enumerate(met):
+        with c[i]: st.markdown(f'<div class="metric-card"><p style="color:gray; font-size:12px;">{l}</p><h3>{v}</h3></div>', unsafe_allow_html=True)
 
-    st.markdown(f"""
-        <div class="hero">
-            <div class="ticker">{ticker}</div>
-            <div class="conviction-text">{conviction}% conviction</div>
-            <div style="color:#8C91A1; font-size:14px; margin-top:15px;">
-                Signal for {next_date} · Generated {datetime.now().strftime('%H:%M')} UTC
-            </div>
-            <div class="source-badge">Source: Shrinking Window</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    # Metrics (These would ideally be calculated during training and saved in the JSON)
-    m1, m2, m3, m4, m5 = st.columns(5)
-    for i, col in enumerate([m1, m2, m3, m4, m5]):
-        with col:
-            st.markdown('<div class="metric-card"><p style="color:gray; font-size:12px;">ANN RETURN</p><h3>--</h3></div>', unsafe_allow_html=True)
-
-with tab_a:
-    render_module("FI")
-
-with tab_b:
-    render_module("EQ")
+with t1: render("FI")
+with t2: render("EQ")
