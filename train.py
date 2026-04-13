@@ -28,20 +28,31 @@ def calculate_metrics(returns):
     """Calculate actual performance metrics from returns series"""
     if len(returns) < 10:
         return {
-            'annual_return': 0,
-            'annual_volatility': 0,
-            'sharpe': 0,
-            'max_drawdown': 0,
-            'hit_rate': 0
+            'annual_return': 0.0,
+            'annual_volatility': 0.0,
+            'sharpe': 0.0,
+            'max_drawdown': 0.0,
+            'hit_rate': 0.0
         }
     
     # Remove NaN/inf
     returns = returns.replace([np.inf, -np.inf], np.nan).dropna()
+    if len(returns) < 10:
+        return {
+            'annual_return': 0.0,
+            'annual_volatility': 0.0,
+            'sharpe': 0.0,
+            'max_drawdown': 0.0,
+            'hit_rate': 0.0
+        }
     
     # Annualized return
     total_return = (1 + returns).prod() - 1
     n_years = len(returns) / 252
-    annual_return = (1 + total_return) ** (1 / n_years) - 1 if n_years > 0 else 0
+    if n_years > 0:
+        annual_return = (1 + total_return) ** (1 / n_years) - 1
+    else:
+        annual_return = 0.0
     
     # Annualized volatility
     annual_volatility = returns.std() * np.sqrt(252)
@@ -55,10 +66,10 @@ def calculate_metrics(returns):
     cum_ret = (1 + returns).cumprod()
     peak = cum_ret.expanding().max()
     drawdown = (cum_ret - peak) / peak
-    max_drawdown = abs(drawdown.min())
+    max_drawdown = abs(drawdown.min()) if not pd.isna(drawdown.min()) else 0.0
     
     # Hit rate (percentage of positive days)
-    hit_rate = (returns > 0).sum() / len(returns)
+    hit_rate = (returns > 0).sum() / len(returns) if len(returns) > 0 else 0.0
     
     return {
         'annual_return': float(annual_return * 100),
@@ -72,14 +83,13 @@ def run_shrinking_window(df, assets, benchmark, window_name, start_year, end_yea
     """Run genetic algorithm on a specific time window"""
     window_df = df[(df.index >= f"{start_year}-01-01") & (df.index <= f"{end_year}-12-31")]
     
-    if len(window_df) < 252:  # Need at least 1 year of data
+    if len(window_df) < 252:
         return None
     
     engine = GeneticEngine(assets, benchmark, MACROS)
     logic, fitness = engine.evolve(window_df)
     
     if logic:
-        # Calculate actual metrics from backtest
         returns = engine.run_backtest(window_df, logic)
         metrics = calculate_metrics(returns)
         
@@ -96,9 +106,11 @@ def run_shrinking_window(df, assets, benchmark, window_name, start_year, end_yea
 
 def run_fixed_dataset(df, assets, benchmark, start_year=2008, end_year=2026):
     """Run on fixed dataset 2008-2026YTD"""
-    # Get data through current date
     current_date = datetime.now()
-    end_date = current_date if current_date.year <= end_year else f"{end_year}-12-31"
+    if current_date.year <= end_year:
+        end_date = current_date
+    else:
+        end_date = f"{end_year}-12-31"
     
     fixed_df = df[(df.index >= f"{start_year}-01-01") & (df.index <= end_date)]
     
@@ -125,7 +137,7 @@ def run_fixed_dataset(df, assets, benchmark, start_year=2008, end_year=2026):
 
 def get_consensus_pick(all_windows):
     """Calculate consensus pick across all shrinking windows"""
-    if not all_windows:
+    if not all_windows or len(all_windows) == 0:
         return None
     
     picks = {}
@@ -133,17 +145,15 @@ def get_consensus_pick(all_windows):
         etf = window['logic'][3]
         picks[etf] = picks.get(etf, 0) + 1
     
-    # Find most common ETF
     consensus_etf = max(picks, key=picks.get)
     conviction = (picks[consensus_etf] / len(all_windows)) * 100
     
-    # Calculate average metrics for consensus picks
     consensus_metrics = {
-        'annual_return': 0,
-        'annual_volatility': 0,
-        'sharpe': 0,
-        'max_drawdown': 0,
-        'hit_rate': 0
+        'annual_return': 0.0,
+        'annual_volatility': 0.0,
+        'sharpe': 0.0,
+        'max_drawdown': 0.0,
+        'hit_rate': 0.0
     }
     
     consensus_windows = [w for w in all_windows if w['logic'][3] == consensus_etf]
@@ -152,11 +162,12 @@ def get_consensus_pick(all_windows):
             consensus_metrics[key] += window['metrics'][key]
     
     for key in consensus_metrics:
-        consensus_metrics[key] /= len(consensus_windows)
+        if len(consensus_windows) > 0:
+            consensus_metrics[key] /= len(consensus_windows)
     
     return {
         'etf': consensus_etf,
-        'conviction': conviction,
+        'conviction': float(conviction),
         'num_windows': len(all_windows),
         'consensus_windows': len(consensus_windows),
         'metrics': consensus_metrics
@@ -185,6 +196,7 @@ def main():
         print(f"ERROR loading data: {e}")
         return
     
+    # Initialize results with empty structure
     final_results = {
         "FI": {
             "shrinking_windows": [],
@@ -220,7 +232,8 @@ def main():
         if shrinking_results:
             consensus = get_consensus_pick(shrinking_results)
             final_results[universe_name]["consensus"] = consensus
-            print(f"  Consensus pick: {consensus['etf']} ({consensus['conviction']:.1f}% conviction)")
+            if consensus:
+                print(f"  Consensus pick: {consensus['etf']} ({consensus['conviction']:.1f}% conviction)")
         
         # 3. Run fixed dataset (2008-2026YTD)
         print(f"  Running fixed dataset 2008-2026YTD...")
@@ -241,7 +254,7 @@ def main():
         api = HfApi()
         api.upload_file(
             path_or_fileobj=output_file,
-            path_in_file=output_file,
+            path_in_repo=output_file,
             repo_id=repo_results,
             repo_type="dataset",
             token=token
