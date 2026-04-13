@@ -35,19 +35,14 @@ class GeneticEngine:
         val_df = data.iloc[int(n*0.8):int(n*0.9)]
         horizons = [1, 3, 5]
         population = [[np.random.choice(self.macros), np.random.choice(['>', '<']), np.random.uniform(-2, 2), np.random.choice(self.assets), np.random.choice(horizons)] for _ in range(self.pop_size)]
-        
-        best_chromo = None
-        max_fit = -np.inf
-        
+        best_chromo, max_fit = None, -np.inf
         for gen in range(self.generations):
             fits = [self.calculate_fitness(self.run_backtest(train_df, c)) for c in population]
             indices = np.argsort(fits)[-10:]
             for idx in indices:
                 v_fit = self.calculate_fitness(self.run_backtest(val_df, population[idx]))
                 if v_fit > max_fit:
-                    max_fit = v_fit
-                    best_chromo = population[idx]
-            
+                    max_fit, best_chromo = v_fit, population[idx]
             new_pop = [population[i] for i in indices]
             while len(new_pop) < self.pop_size:
                 child = list(population[np.random.choice(indices)])
