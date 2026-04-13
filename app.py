@@ -41,7 +41,7 @@ def get_next_nyse_date():
     return schedule.index[0].strftime('%Y-%m-%d')
 
 # Header
-st.markdown('<h1 style="margin-bottom:0;">SAMBA — Graph-Mamba ETF Engine</h1>', unsafe_allow_html=True)
+st.markdown('<h1 style="margin-bottom:0;">GENETIC-ALGO</h1>', unsafe_allow_html=True)
 st.markdown('<p style="color:#5E6271;">Genetic Algorithm Optimization · 60/20/20 Fitness · 1d/3d/5d Horizons</p>', unsafe_allow_html=True)
 
 data = load_latest_results()
