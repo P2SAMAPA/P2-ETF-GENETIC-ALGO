@@ -8,7 +8,6 @@ from huggingface_hub import hf_hub_download
 
 st.set_page_config(layout="wide", page_title="P2-ETF-GENETIC-ALGO")
 
-# Custom CSS
 st.markdown("""
     <style>
     .main { background-color: #faf8f5; }
@@ -20,33 +19,28 @@ st.markdown("""
     .metric-value { font-size: 28px; font-weight: 700; color: #0E1117; margin-top: 8px; }
     .subheader { font-size: 20px; font-weight: 600; margin: 20px 0 15px 0; color: #2C3E50; }
     .divider { border-top: 1px solid #E6E6F2; margin: 20px 0; }
+    .fitness-bad { color: #e74c3c; font-weight: 600; }
+    .fitness-good { color: #27ae60; font-weight: 600; }
     </style>
 """, unsafe_allow_html=True)
 
 @st.cache_data(ttl=3600)
 def load_results():
-    """Load results from Hugging Face"""
     try:
         token = os.getenv("HF_TOKEN")
-        
         path = hf_hub_download(
             repo_id="P2SAMAPA/p2-etf-genetic-algo-results", 
             filename="strategy_results.json", 
             repo_type="dataset", 
             token=token
         )
-        
         with open(path, 'r') as f:
-            data = json.load(f)
-        
-        return data
-        
+            return json.load(f)
     except Exception as e:
         st.error(f"Failed to load results: {str(e)}")
         return None
 
 def get_next_trading_day():
-    """Get next NYSE trading day"""
     try:
         nyse = mcal.get_calendar('NYSE')
         schedule = nyse.schedule(
@@ -59,8 +53,15 @@ def get_next_trading_day():
         pass
     return datetime.now().strftime('%Y-%m-%d')
 
+def format_fitness(fitness):
+    if fitness < -100:
+        return "Poor"
+    elif fitness < 0:
+        return f"{fitness:.2f}"
+    else:
+        return f"{fitness:.2f}"
+
 def render_hero_card(ticker, conviction, signal_date, generated_time):
-    """Render the hero section"""
     st.markdown(f'''
         <div class="hero">
             <div class="ticker">{ticker}</div>
@@ -72,18 +73,17 @@ def render_hero_card(ticker, conviction, signal_date, generated_time):
     ''', unsafe_allow_html=True)
 
 def render_metrics(metrics):
-    """Render metrics cards"""
     cols = st.columns(5)
     
     metric_items = [
-        ("Annual Return", f"{metrics['annual_return']:.1f}%", True),
-        ("Annual Vol", f"{metrics['annual_volatility']:.1f}%", True),
-        ("Sharpe", f"{metrics['sharpe']:.2f}", False),
-        ("Max DD", f"{metrics['max_drawdown']:.1f}%", True),
-        ("Hit Rate", f"{metrics['hit_rate']:.1f}%", True)
+        ("Annual Return", f"{metrics['annual_return']:.1f}%"),
+        ("Annual Vol", f"{metrics['annual_volatility']:.1f}%"),
+        ("Sharpe", f"{metrics['sharpe']:.2f}"),
+        ("Max DD", f"{metrics['max_drawdown']:.1f}%"),
+        ("Hit Rate", f"{metrics['hit_rate']:.1f}%")
     ]
     
-    for col, (label, value, is_pct) in zip(cols, metric_items):
+    for col, (label, value) in zip(cols, metric_items):
         with col:
             st.markdown(f'''
                 <div class="metric-card">
@@ -93,26 +93,23 @@ def render_metrics(metrics):
             ''', unsafe_allow_html=True)
 
 def render_universe(data, universe_name):
-    """Render a complete universe view (FI or EQ)"""
     if not data:
         st.warning("No data loaded.")
         return
     
     universe_data = data.get(universe_name)
     if not universe_data:
-        st.warning(f"No data available for {universe_name}. Please run train.py first.")
+        st.warning(f"No data available for {universe_name}.")
         return
     
     signal_date = get_next_trading_day()
     generated_time = datetime.now().strftime("%H:%M UTC")
     
-    # Create tabs for Fixed Dataset and Shrinking Consensus
     tab_fixed, tab_shrinking = st.tabs([
         "📊 Fixed Dataset (2008-2026YTD)",
         "🔄 Shrinking Consensus (2008-2024)"
     ])
     
-    # Tab 1: Fixed Dataset
     with tab_fixed:
         fixed = universe_data.get('fixed_dataset')
         if fixed:
@@ -148,7 +145,6 @@ def render_universe(data, universe_name):
         else:
             st.info("Fixed dataset results not available yet. Run train.py to generate.")
     
-    # Tab 2: Shrinking Windows Consensus
     with tab_shrinking:
         consensus = universe_data.get('consensus')
         shrinking_windows = universe_data.get('shrinking_windows', [])
@@ -190,10 +186,13 @@ def render_universe(data, universe_name):
             with st.expander("📋 View All Shrinking Window Results"):
                 window_data = []
                 for window in shrinking_windows:
+                    fitness_val = window['fitness']
+                    fitness_display = format_fitness(fitness_val)
+                    
                     window_data.append({
                         'Window': f"{window['start_year']}-{window['end_year']}",
                         'ETF': window['logic'][3],
-                        'Fitness': f"{window['fitness']:.2f}",
+                        'Fitness': fitness_display,
                         'Ann Return': f"{window['metrics']['annual_return']:.1f}%",
                         'Sharpe': f"{window['metrics']['sharpe']:.2f}"
                     })
@@ -201,11 +200,9 @@ def render_universe(data, universe_name):
         else:
             st.info("Shrinking windows consensus not available yet. Run train.py to generate.")
 
-# Main App
 st.markdown('<h1 style="margin-bottom:0;">P2-ETF-GENETIC-ALGO</h1>', unsafe_allow_html=True)
 st.markdown('<p style="color:#5E6271; margin-bottom: 30px;">Evolutionary ETF Predictor · Genetic Algorithm Optimization · Multi-Horizon Macro Signals</p>', unsafe_allow_html=True)
 
-# Load data
 data = load_results()
 
 if data:
@@ -217,11 +214,4 @@ if data:
     with tab_eq:
         render_universe(data, "EQ")
 else:
-    st.error("""
-    ### Unable to load strategy results
-    
-    Please ensure:
-    1. You've run `train.py` to generate results
-    2. The Hugging Face dataset 'p2-etf-genetic-algo-results' exists
-    3. Your HF_TOKEN is properly set in environment variables
-    """)
+    st.error("Unable to load strategy results. Please ensure you have run train.py and the Hugging Face dataset exists.")
