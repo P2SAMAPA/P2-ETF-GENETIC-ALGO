@@ -11,7 +11,6 @@ EQ_ASSETS = ["QQQ", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLRE", "XLB", "XL
 MACROS = ["VIX", "DXY", "T10Y2Y", "TBILL_3M", "IG_SPREAD", "HY_SPREAD"]
 
 def clean_numpy(obj):
-    """Convert numpy types to Python native types for JSON serialization"""
     if isinstance(obj, (np.integer, np.int64)):
         return int(obj)
     if isinstance(obj, (np.floating, np.float64)):
@@ -25,7 +24,6 @@ def clean_numpy(obj):
     return obj
 
 def calculate_metrics(returns):
-    """Calculate actual performance metrics from returns series"""
     if len(returns) < 10:
         return {
             'annual_return': 0.0,
@@ -35,7 +33,6 @@ def calculate_metrics(returns):
             'hit_rate': 0.0
         }
     
-    # Remove NaN/inf
     returns = returns.replace([np.inf, -np.inf], np.nan).dropna()
     if len(returns) < 10:
         return {
@@ -46,7 +43,6 @@ def calculate_metrics(returns):
             'hit_rate': 0.0
         }
     
-    # Annualized return
     total_return = (1 + returns).prod() - 1
     n_years = len(returns) / 252
     if n_years > 0:
@@ -54,21 +50,16 @@ def calculate_metrics(returns):
     else:
         annual_return = 0.0
     
-    # Annualized volatility
     annual_volatility = returns.std() * np.sqrt(252)
-    
-    # Sharpe ratio (assuming 2% risk-free rate)
     risk_free_rate = 0.02
     excess_returns = returns - (risk_free_rate / 252)
     sharpe = (excess_returns.mean() / (excess_returns.std() + 1e-9)) * np.sqrt(252)
     
-    # Maximum drawdown
     cum_ret = (1 + returns).cumprod()
     peak = cum_ret.expanding().max()
     drawdown = (cum_ret - peak) / peak
     max_drawdown = abs(drawdown.min()) if not pd.isna(drawdown.min()) else 0.0
     
-    # Hit rate (percentage of positive days)
     hit_rate = (returns > 0).sum() / len(returns) if len(returns) > 0 else 0.0
     
     return {
@@ -80,7 +71,6 @@ def calculate_metrics(returns):
     }
 
 def run_shrinking_window(df, assets, benchmark, window_name, start_year, end_year=2024):
-    """Run genetic algorithm on a specific time window"""
     window_df = df[(df.index >= f"{start_year}-01-01") & (df.index <= f"{end_year}-12-31")]
     
     if len(window_df) < 252:
@@ -105,7 +95,6 @@ def run_shrinking_window(df, assets, benchmark, window_name, start_year, end_yea
     return None
 
 def run_fixed_dataset(df, assets, benchmark, start_year=2008, end_year=2026):
-    """Run on fixed dataset 2008-2026YTD"""
     current_date = datetime.now()
     if current_date.year <= end_year:
         end_date = current_date
@@ -136,17 +125,22 @@ def run_fixed_dataset(df, assets, benchmark, start_year=2008, end_year=2026):
     return None
 
 def get_consensus_pick(all_windows):
-    """Calculate consensus pick across all shrinking windows"""
     if not all_windows or len(all_windows) == 0:
         return None
     
+    # Filter out windows with poor fitness (negative or very low)
+    valid_windows = [w for w in all_windows if w['fitness'] > -100]
+    
+    if not valid_windows:
+        valid_windows = all_windows
+    
     picks = {}
-    for window in all_windows:
+    for window in valid_windows:
         etf = window['logic'][3]
         picks[etf] = picks.get(etf, 0) + 1
     
     consensus_etf = max(picks, key=picks.get)
-    conviction = (picks[consensus_etf] / len(all_windows)) * 100
+    conviction = (picks[consensus_etf] / len(valid_windows)) * 100
     
     consensus_metrics = {
         'annual_return': 0.0,
@@ -156,7 +150,7 @@ def get_consensus_pick(all_windows):
         'hit_rate': 0.0
     }
     
-    consensus_windows = [w for w in all_windows if w['logic'][3] == consensus_etf]
+    consensus_windows = [w for w in valid_windows if w['logic'][3] == consensus_etf]
     for window in consensus_windows:
         for key in consensus_metrics:
             consensus_metrics[key] += window['metrics'][key]
@@ -168,7 +162,7 @@ def get_consensus_pick(all_windows):
     return {
         'etf': consensus_etf,
         'conviction': float(conviction),
-        'num_windows': len(all_windows),
+        'num_windows': len(valid_windows),
         'consensus_windows': len(consensus_windows),
         'metrics': consensus_metrics
     }
@@ -196,7 +190,6 @@ def main():
         print(f"ERROR loading data: {e}")
         return
     
-    # Initialize results with empty structure
     final_results = {
         "FI": {
             "shrinking_windows": [],
@@ -210,14 +203,12 @@ def main():
         }
     }
     
-    # Run for both universes
     for universe_name, assets, benchmark in [
         ("FI", FI_ASSETS, "AGG"), 
         ("EQ", EQ_ASSETS, "SPY")
     ]:
         print(f"\nProcessing {universe_name} universe...")
         
-        # 1. Run shrinking windows (2008-2024)
         shrinking_results = []
         for year in range(2008, 2025):
             print(f"  Running shrinking window starting {year}...")
@@ -228,28 +219,24 @@ def main():
         
         final_results[universe_name]["shrinking_windows"] = shrinking_results
         
-        # 2. Calculate consensus from shrinking windows
         if shrinking_results:
             consensus = get_consensus_pick(shrinking_results)
             final_results[universe_name]["consensus"] = consensus
             if consensus:
                 print(f"  Consensus pick: {consensus['etf']} ({consensus['conviction']:.1f}% conviction)")
         
-        # 3. Run fixed dataset (2008-2026YTD)
         print(f"  Running fixed dataset 2008-2026YTD...")
         fixed_result = run_fixed_dataset(df, assets, benchmark, 2008, 2026)
         if fixed_result:
             final_results[universe_name]["fixed_dataset"] = fixed_result
             print(f"    ✓ Fixed dataset pick: {fixed_result['logic'][3]}")
     
-    # Save results
     output_file = "strategy_results.json"
     with open(output_file, "w") as f:
         json.dump(final_results, f, indent=2)
     
     print(f"\nResults saved to {output_file}")
     
-    # Upload to Hugging Face
     try:
         api = HfApi()
         api.upload_file(
