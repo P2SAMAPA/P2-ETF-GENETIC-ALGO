@@ -13,7 +13,7 @@ def main():
     repo_data = "P2SAMAPA/fi-etf-macro-signal-master-data"
     repo_results = "P2SAMAPA/p2-etf-genetic-algo-results"
     
-    file_path = hf_hub_download(repo_id=repo_data, filename="master.parquet", repo_type="dataset", token=token)
+    file_path = hf_hub_download(repo_id=repo_data, filename="master_data.parquet", repo_type="dataset", token=token)
     df = pd.read_parquet(file_path)
 
     final_results = {"FI": [], "EQ": []}
