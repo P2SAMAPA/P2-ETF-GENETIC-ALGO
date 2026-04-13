@@ -30,7 +30,6 @@ def load_results():
     try:
         token = os.getenv("HF_TOKEN")
         if not token:
-            # Try without token for public access
             token = None
         
         path = hf_hub_download(
@@ -110,8 +109,8 @@ def render_universe(data, universe_name, display_name):
     
     # Create tabs for Fixed Dataset and Shrinking Consensus
     tab_fixed, tab_shrinking = st.tabs([
-        f"📊 Fixed Dataset (2008-2026YTD)",
-        f"🔄 Shrinking Consensus (2008-2024)"
+        "📊 Fixed Dataset (2008-2026YTD)",
+        "🔄 Shrinking Consensus (2008-2024)"
     ])
     
     # Tab 1: Fixed Dataset
@@ -222,15 +221,4 @@ if data:
     with tab_eq:
         render_universe(data, "EQ", "Equity Sectors")
 else:
-    st.error("""
-    ### Unable to load strategy results
-    
-    Please ensure:
-    1. You've run `train.py` to generate results
-    2. The Hugging Face dataset 'p2-etf-genetic-algo-results' exists
-    3. Your HF_TOKEN is properly set in environment variables
-    
-    Run the training script first:
-    ```bash
-    export HF_TOKEN=your_token_here
-    python train.py
+    st.error("Unable to load strategy results. Please ensure you have run train.py and the Hugging Face dataset exists.")
