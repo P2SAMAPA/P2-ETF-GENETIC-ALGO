@@ -19,7 +19,6 @@ st.markdown("""
     .metric-label { color: #8C91A1; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
     .metric-value { font-size: 28px; font-weight: 700; color: #0E1117; margin-top: 8px; }
     .subheader { font-size: 20px; font-weight: 600; margin: 20px 0 15px 0; color: #2C3E50; }
-    .info-text { color: #5E6271; font-size: 14px; margin-bottom: 20px; }
     .divider { border-top: 1px solid #E6E6F2; margin: 20px 0; }
     </style>
 """, unsafe_allow_html=True)
@@ -29,8 +28,6 @@ def load_results():
     """Load results from Hugging Face"""
     try:
         token = os.getenv("HF_TOKEN")
-        if not token:
-            token = None
         
         path = hf_hub_download(
             repo_id="P2SAMAPA/p2-etf-genetic-algo-results", 
@@ -38,8 +35,12 @@ def load_results():
             repo_type="dataset", 
             token=token
         )
+        
         with open(path, 'r') as f:
-            return json.load(f)
+            data = json.load(f)
+        
+        return data
+        
     except Exception as e:
         st.error(f"Failed to load results: {str(e)}")
         return None
@@ -57,12 +58,6 @@ def get_next_trading_day():
     except:
         pass
     return datetime.now().strftime('%Y-%m-%d')
-
-def format_metric(value, is_percentage=False):
-    """Format metric values for display"""
-    if is_percentage:
-        return f"{value:.1f}%"
-    return f"{value:.2f}"
 
 def render_hero_card(ticker, conviction, signal_date, generated_time):
     """Render the hero section"""
@@ -97,13 +92,17 @@ def render_metrics(metrics):
                 </div>
             ''', unsafe_allow_html=True)
 
-def render_universe(data, universe_name, display_name):
+def render_universe(data, universe_name):
     """Render a complete universe view (FI or EQ)"""
-    if not data or universe_name not in data:
-        st.warning(f"No data available for {display_name}. Please run train.py first.")
+    if not data:
+        st.warning("No data loaded.")
         return
     
-    universe_data = data[universe_name]
+    universe_data = data.get(universe_name)
+    if not universe_data:
+        st.warning(f"No data available for {universe_name}. Please run train.py first.")
+        return
+    
     signal_date = get_next_trading_day()
     generated_time = datetime.now().strftime("%H:%M UTC")
     
@@ -117,14 +116,14 @@ def render_universe(data, universe_name, display_name):
     with tab_fixed:
         fixed = universe_data.get('fixed_dataset')
         if fixed:
-            ticker = fixed['logic'][3]
+            logic = fixed['logic']
             metrics = fixed['metrics']
+            ticker = logic[3]
             
             render_hero_card(ticker, 100.0, signal_date, generated_time)
             st.markdown('<div class="subheader">📈 Performance Metrics</div>', unsafe_allow_html=True)
             render_metrics(metrics)
             
-            # Additional info
             st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
             col1, col2 = st.columns(2)
             with col1:
@@ -132,8 +131,8 @@ def render_universe(data, universe_name, display_name):
                     <div class="metric-card">
                         <div class="metric-label">Strategy Logic</div>
                         <div style="font-size: 14px; margin-top: 10px; text-align: left;">
-                            If {fixed['logic'][0]} {fixed['logic'][1]} {fixed['logic'][2]:.2f}<br>
-                            Then buy {fixed['logic'][3]} for {fixed['logic'][4]} days
+                            If {logic[0]} {logic[1]} {logic[2]:.2f}<br>
+                            Then buy {logic[3]} for {logic[4]} days
                         </div>
                     </div>
                 ''', unsafe_allow_html=True)
@@ -164,7 +163,6 @@ def render_universe(data, universe_name, display_name):
             st.markdown('<div class="subheader">📊 Consensus Performance Metrics</div>', unsafe_allow_html=True)
             render_metrics(metrics)
             
-            # Consensus details
             st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -189,7 +187,6 @@ def render_universe(data, universe_name, display_name):
                     </div>
                 ''', unsafe_allow_html=True)
             
-            # Show individual window picks (expandable)
             with st.expander("📋 View All Shrinking Window Results"):
                 window_data = []
                 for window in shrinking_windows:
@@ -212,13 +209,19 @@ st.markdown('<p style="color:#5E6271; margin-bottom: 30px;">Evolutionary ETF Pre
 data = load_results()
 
 if data:
-    # Create tabs for FI and EQ universes
     tab_fi, tab_eq = st.tabs(["🌊 Option A — Fixed Income / Alternatives", "⚡ Option B — Equity Sectors"])
     
     with tab_fi:
-        render_universe(data, "FI", "Fixed Income & Alternatives")
+        render_universe(data, "FI")
     
     with tab_eq:
-        render_universe(data, "EQ", "Equity Sectors")
+        render_universe(data, "EQ")
 else:
-    st.error("Unable to load strategy results. Please ensure you have run train.py and the Hugging Face dataset exists.")
+    st.error("""
+    ### Unable to load strategy results
+    
+    Please ensure:
+    1. You've run `train.py` to generate results
+    2. The Hugging Face dataset 'p2-etf-genetic-algo-results' exists
+    3. Your HF_TOKEN is properly set in environment variables
+    """)
