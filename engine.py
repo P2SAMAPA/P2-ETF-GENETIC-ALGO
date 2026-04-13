@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-from scipy.stats import norm
 
 class GeneticEngine:
     def __init__(self, assets, benchmark, macros, cost_bps=13.5):
@@ -19,8 +18,7 @@ class GeneticEngine:
         cum_ret = (1 + rets).cumprod()
         peak = cum_ret.cummax()
         max_dd = abs(((cum_ret - peak) / peak).min())
-        fitness = (0.60 * float(total_ret)) + (0.20 * float(sharpe)) + (0.20 * (1 - float(max_dd)))
-        return fitness
+        return (0.60 * float(total_ret)) + (0.20 * float(sharpe)) + (0.20 * (1 - float(max_dd)))
 
     def run_backtest(self, df, chromo):
         col, op, thresh, etf, horizon = chromo
@@ -29,25 +27,18 @@ class GeneticEngine:
         signal = raw_signal.rolling(window=int(horizon), min_periods=1).max()
         asset_rets = df[etf].pct_change().fillna(0)
         trades = signal.diff().abs().fillna(0)
-        net_rets = (signal * asset_rets) - (trades * self.cost_bps)
-        return net_rets
+        return (signal * asset_rets) - (trades * self.cost_bps)
 
     def evolve(self, data):
         n = len(data)
         train_df = data.iloc[:int(n*0.8)]
         val_df = data.iloc[int(n*0.8):int(n*0.9)]
         horizons = [1, 3, 5]
-        population = []
-        for _ in range(self.pop_size):
-            population.append([
-                np.random.choice(self.macros),
-                np.random.choice(['>', '<']),
-                np.random.uniform(-2, 2),
-                np.random.choice(self.assets),
-                np.random.choice(horizons)
-            ])
+        population = [[np.random.choice(self.macros), np.random.choice(['>', '<']), np.random.uniform(-2, 2), np.random.choice(self.assets), np.random.choice(horizons)] for _ in range(self.pop_size)]
+        
         best_chromo = None
         max_fit = -np.inf
+        
         for gen in range(self.generations):
             fits = [self.calculate_fitness(self.run_backtest(train_df, c)) for c in population]
             indices = np.argsort(fits)[-10:]
@@ -56,10 +47,10 @@ class GeneticEngine:
                 if v_fit > max_fit:
                     max_fit = v_fit
                     best_chromo = population[idx]
+            
             new_pop = [population[i] for i in indices]
             while len(new_pop) < self.pop_size:
-                parent = population[np.random.choice(indices)]
-                child = list(parent)
+                child = list(population[np.random.choice(indices)])
                 child[2] += np.random.normal(0, 0.1)
                 if np.random.rand() < 0.1: child[4] = np.random.choice(horizons)
                 new_pop.append(child)
