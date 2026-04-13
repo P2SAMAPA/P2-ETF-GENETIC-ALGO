@@ -1,20 +1,37 @@
-name: ETF Genetic Optimization
+name: ETF Genetic Optimization Daily Run
+
 on:
   schedule:
     - cron: '15 22 * * *'
   workflow_dispatch:
+
 jobs:
   train:
     runs-on: ubuntu-latest
+    
     steps:
       - uses: actions/checkout@v3
+      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
-      - name: Install Dependencies
-        run: pip install pandas numpy pandas_market_calendars huggingface_hub pyarrow fastparquet scipy
-      - name: Execute Engine
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pandas numpy pandas_market_calendars huggingface_hub pyarrow fastparquet scipy streamlit plotly
+      
+      - name: Run genetic optimization
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python train.py
+      
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: error-logs
+          path: |
+            *.log
+            *.json
