@@ -1,0 +1,9 @@
+pandas
+numpy
+pandas_market_calendars
+huggingface_hub
+streamlit
+plotly
+scipy
+pyarrow
+fastparquet
