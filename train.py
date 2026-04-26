@@ -59,7 +59,6 @@ def calculate_metrics(returns, risk_free_rate=0.02):
     }
 
 def train_ga_engine(df, assets, benchmark, mode_name, data_slice_func):
-    """Run GA on a specific data slice and return best rule + metrics."""
     data = data_slice_func(df)
     if len(data) < 252:
         return None
@@ -70,7 +69,6 @@ def train_ga_engine(df, assets, benchmark, mode_name, data_slice_func):
     if logic is None:
         return None
 
-    # Run backtest on the entire slice for reporting
     returns = engine.run_backtest(data, logic)
     metrics = calculate_metrics(returns)
 
@@ -85,10 +83,59 @@ def train_ga_engine(df, assets, benchmark, mode_name, data_slice_func):
     }
 
 def daily_slice(df):
-    return df.iloc[-504:]   # last 2 years
+    return df.iloc[-504:]
 
-def global_slice(df):
-    return df   # full history
+def fixed_slice(df):
+    return df
+
+def shrinking_windows_slice(df, assets, benchmark):
+    """Compute shrinking windows consensus with the new GA engine."""
+    results = []
+    for start_year in range(2008, 2025):
+        window_df = df[(df.index >= f"{start_year}-01-01") & (df.index <= "2024-12-31")]
+        if len(window_df) < 252:
+            continue
+        engine = GeneticEngine(assets, benchmark, MACROS)
+        logic, fitness = engine.evolve(window_df)
+        if logic:
+            returns = engine.run_backtest(window_df, logic)
+            metrics = calculate_metrics(returns)
+            results.append({
+                'window_start': start_year,
+                'window_end': 2024,
+                'logic': clean_numpy(logic),
+                'fitness': float(fitness),
+                'metrics': metrics,
+                'ticker': logic[3]
+            })
+    return results
+
+def consensus_from_shrinking(shrinking_results):
+    """Pick the most frequently chosen ETF across windows."""
+    if not shrinking_results:
+        return None
+    valid = [r for r in shrinking_results if r.get('fitness', -999) > -10]
+    if not valid:
+        valid = shrinking_results
+    vote = {}
+    for r in valid:
+        t = r['ticker']
+        vote[t] = vote.get(t, 0) + 1
+    pick = max(vote, key=vote.get)
+    conviction = vote[pick] / len(valid) * 100
+    metrics_avg = {}
+    pick_windows = [r for r in valid if r['ticker'] == pick]
+    if pick_windows:
+        for key in pick_windows[0]['metrics']:
+            metrics_avg[key] = np.mean([r['metrics'][key] for r in pick_windows])
+    return {
+        'ticker': pick,
+        'conviction': conviction,
+        'num_windows': len(valid),
+        'num_pick_windows': vote[pick],
+        'metrics': metrics_avg,
+        'windows': shrinking_results
+    }
 
 def main():
     token = os.getenv("HF_TOKEN")
@@ -114,17 +161,21 @@ def main():
     for universe_name, assets, benchmark in [("FI", FI_ASSETS, "AGG"), ("EQ", EQ_ASSETS, "SPY")]:
         print(f"\n=== {universe_name} Universe ===")
 
-        # Daily mode (504 days)
+        # Daily mode
         daily = train_ga_engine(df, assets, benchmark, "Daily (504d)", daily_slice)
         if daily:
             final_results[universe_name]["daily"] = daily
-            print(f"  Daily pick: {daily['logic'][3]} (Sortino: {daily['fitness']:.2f})")
 
-        # Global mode (2008‑today)
-        global_ = train_ga_engine(df, assets, benchmark, "Global (2008‑YTD)", global_slice)
-        if global_:
-            final_results[universe_name]["global"] = global_
-            print(f"  Global pick: {global_['logic'][3]} (Sortino: {global_['fitness']:.2f})")
+        # Fixed mode
+        fixed = train_ga_engine(df, assets, benchmark, "Fixed (2008‑YTD)", fixed_slice)
+        if fixed:
+            final_results[universe_name]["fixed"] = fixed
+
+        # Shrinking windows consensus
+        shrinking = shrinking_windows_slice(df, assets, benchmark)
+        consensus = consensus_from_shrinking(shrinking)
+        if consensus:
+            final_results[universe_name]["shrinking"] = consensus
 
     output_file = "strategy_results.json"
     with open(output_file, "w") as f:
