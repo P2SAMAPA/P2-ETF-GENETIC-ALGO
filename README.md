@@ -1,31 +1,50 @@
 # P2-ETF-GENETIC-ALGO
 
-An evolutionary engine designed to predict the highest return ETF for the next US market trading date by optimizing macro-signal logic across multiple time horizons.
+An evolutionary engine that predicts the highest‑reward ETF for the next US market trading date by optimising macro‑signal logic across multiple time horizons.
 
 ## 🚀 Engine Objectives
-- **Target:** Predict the top-performing ETF for the next NYSE date.
-- **Universes:**
-    - **Option A (Fixed Income/Alts):** TLT, LQD, HYG, VNQ, GLD, SLV, VCIT vs. AGG.
-    - **Option B (Equity):** QQQ, XLK, XLF, XLE, XLV, XLI, XLY, XLRE, XLB, XLP, XLU, GDX, XME, IWM vs. SPY.
-- **Optimization:** Evaluates 1-day, 3-day, and 5-day holding periods to select the winner.
 
-## 🧠 Methodology
-1. **Shrinking Windows:** The engine runs 17 distinct iterations starting from 2008 through 2024.
-2. **80/10/10 Split:** Every window is strictly partitioned into Training (80%), Validation (10%), and Test (10%).
-3. **Genetic Algorithm:** Evolves logic gates based on 6 macro features: `VIX`, `DXY`, `T10Y2Y`, `TBILL_3M`, `IG_SPREAD`, and `HY_SPREAD`.
-4. **Weighted Fitness (60/20/20):**
-    - 60% Total Returns
-    - 20% Sharpe Ratio
-    - 20% Max Drawdown (Lower is better)
-5. **Hard Filter:** Any year or window resulting in a negative total return is automatically excluded from the weighting process.
-6. **Cost Modeling:** Includes a transaction slippage/cost of 12–15 bps per trade.
+- **Target:** Predict the top‑performing ETF for the next NYSE trading date.  
+- **Universes:**  
+  - **Option A – Fixed Income / Alternatives:** TLT, LQD, HYG, VNQ, GLD, SLV, VCIT, CASH vs. AGG.  
+  - **Option B – Equity Sectors:** QQQ, XLK, XLF, XLE, XLV, XLI, XLY, XLRE, XLB, XLP, XLU, GDX, XME, IWF, XSD, XBI, IWM, CASH vs. SPY.  
+- **Optimisation:** Evaluates 1‑day, 3‑day and 5‑day holding periods within a single rule.
+
+## 🧠 Methodology (improved v2)
+
+- **Walk‑Forward Sortino Fitness:** The Genetic Algorithm evaluates each candidate rule using **walk‑forward cross‑validation** (5 folds). The fitness function is the **annualised Sortino ratio** (downside‑only volatility), not raw returns or Sharpe. This directly penalises strategies with large drawdowns.  
+- **Population & Diversity:** Population size = 200, tournament selection (size 7), elitism of 20 individuals, and adaptive mutation rates. Immigration is applied implicitly via mutation strength.  
+- **Cash Gene:** The chromosome includes a **CASH** asset. The GA can choose to hold cash when no ETF offers a favourable risk‑adjusted outlook.  
+- **Three Training Modes:**  
+  - **Daily (504 days):** Trained on the most recent 2 years to capture the current regime.  
+  - **Fixed (2008‑YTD):** Trained on the entire available history for long‑term robustness.  
+  - **Shrinking Windows Consensus:** Runs the GA on 17 rolling windows (2008‑2024), then picks the most frequently selected ETF across windows, with conviction scoring.  
+- **Macro Features:** VIX, DXY, T10Y2Y, TBILL_3M, IG_SPREAD, HY_SPREAD.  
+- **Transaction Cost:** 13.5 bps per trade.  
+
+## 📊 Dashboard
+
+The Streamlit app (`app.py`) displays **three sub‑tabs per universe**:
+
+- **📅 Daily (504d):** The best rule from the recent 2‑year walk‑forward training.  
+- **📆 Fixed (2008‑YTD):** The best rule from the full historical dataset.  
+- **🔄 Shrinking Consensus:** Consensus ETF across all shrinking windows, with conviction and performance metrics.  
+
+Each tab shows a hero card with the selected ETF (or CASH), full backtest metrics, and the decoded trading rule.
 
 ## 🛠 Project Structure
-- `app.py`: Streamlit dashboard (SAMBA Style) featuring the NYSE market calendar.
-- `engine.py`: The core Genetic Algorithm and backtesting logic.
-- `train.py`: Headless training script for automated GitHub Actions execution.
-- `.github/workflows/daily_run.yml`: Automated trigger at 22:15 UTC.
+P2-ETF-GENETIC-ALGO/
+├── app.py # Streamlit dashboard
+├── engine.py # Core Genetic Algorithm with walk‑forward Sortino fitness
+├── train.py # Headless training (daily + fixed + shrinking)
+├── requirements.txt
+├── README.md
+├── .github/workflows/
+│ └── daily_run.yml # Automated trigger at 22:15 UTC
 
-## 📊 Data Pipeline
-- **Source:** `fi-etf-macro-signal-master-data` (Hugging Face).
-- **Destination:** `p2-etf-genetic-algo-results` (Hugging Face).
+text
+
+## 📦 Data Pipeline
+
+- **Source:** `P2SAMAPA/fi‑etf‑macro‑signal‑master‑data` (master_data.parquet)
+- **Destination:** `P2SAMAPA/p2‑etf‑genetic‑algo‑results` (strategy_results.json)
