@@ -21,6 +21,7 @@ st.markdown("""
     .divider { border-top: 1px solid #E6E6F2; margin: 20px 0; }
     .fitness-bad { color: #e74c3c; font-weight: 600; }
     .fitness-good { color: #27ae60; font-weight: 600; }
+    .cash-hero { background: linear-gradient(135deg, #bdc3c7 0%, #2c3e50 100%); }
     </style>
 """, unsafe_allow_html=True)
 
@@ -54,35 +55,40 @@ def get_next_trading_day():
     return datetime.now().strftime('%Y-%m-%d')
 
 def format_fitness(fitness):
-    if fitness < -100:
+    """Format Sortino fitness value with color coding."""
+    if fitness < -10:
         return "Poor"
     elif fitness < 0:
         return f"{fitness:.2f}"
     else:
         return f"{fitness:.2f}"
 
-def render_hero_card(ticker, conviction, signal_date, generated_time):
+def render_hero_card(ticker, mode_name, signal_date, generated_time, is_cash=False):
+    """Display hero card with different styling for cash selection."""
+    hero_class = "hero" if not is_cash else "hero cash-hero"
+    ticker_display = "CASH" if is_cash else ticker
+    conviction_text = "Holding Cash" if is_cash else f"GA‑Selected Rule"
+    
     st.markdown(f'''
-        <div class="hero">
-            <div class="ticker">{ticker}</div>
-            <div class="conviction-text">{conviction:.1f}% conviction</div>
+        <div class="{hero_class}">
+            <div class="ticker">{ticker_display}</div>
+            <div class="conviction-text">{conviction_text}</div>
             <div style="font-size: 14px; margin-top: 15px; opacity: 0.8;">
-                Signal for {signal_date} · Generated {generated_time}
+                Mode: {mode_name} · Signal for {signal_date} · Generated {generated_time}
             </div>
         </div>
     ''', unsafe_allow_html=True)
 
 def render_metrics(metrics):
+    """Display five key performance metrics."""
     cols = st.columns(5)
-    
     metric_items = [
-        ("Annual Return", f"{metrics['annual_return']:.1f}%"),
-        ("Annual Vol", f"{metrics['annual_volatility']:.1f}%"),
-        ("Sharpe", f"{metrics['sharpe']:.2f}"),
-        ("Max DD", f"{metrics['max_drawdown']:.1f}%"),
-        ("Hit Rate", f"{metrics['hit_rate']:.1f}%")
+        ("Annual Return", f"{metrics.get('annual_return', 0):.1f}%"),
+        ("Annual Vol", f"{metrics.get('annual_volatility', 0):.1f}%"),
+        ("Sharpe", f"{metrics.get('sharpe', 0):.2f}"),
+        ("Max DD", f"{metrics.get('max_drawdown', 0):.1f}%"),
+        ("Hit Rate", f"{metrics.get('hit_rate', 0):.1f}%")
     ]
-    
     for col, (label, value) in zip(cols, metric_items):
         with col:
             st.markdown(f'''
@@ -92,7 +98,62 @@ def render_metrics(metrics):
                 </div>
             ''', unsafe_allow_html=True)
 
+def render_logic_card(logic):
+    """Show the trading rule in a readable card."""
+    if not logic or len(logic) < 5:
+        return
+    macro, operator, threshold, etf, horizon = logic
+    action = "Buy" if etf != 'CASH' else "Hold"
+    target = etf if etf != 'CASH' else "Cash"
+    st.markdown(f'''
+        <div class="metric-card">
+            <div class="metric-label">Strategy Logic</div>
+            <div style="font-size: 14px; margin-top: 10px; text-align: left;">
+                If {macro} {operator} {threshold:.2f}<br>
+                Then {action.lower()} {target} for {horizon} days
+            </div>
+        </div>
+    ''', unsafe_allow_html=True)
+
+def render_mode_tab(mode_data, mode_name):
+    """Display a single mode (daily or global) for a universe."""
+    if not mode_data:
+        st.warning(f"No {mode_name} data available.")
+        return
+    
+    logic = mode_data['logic']
+    metrics = mode_data['metrics']
+    ticker = logic[3] if len(logic) > 3 else 'CASH'
+    is_cash = (ticker == 'CASH')
+    signal_date = get_next_trading_day()
+    generated_time = datetime.now().strftime("%H:%M UTC")
+    
+    # Hero card
+    render_hero_card(ticker, mode_name, signal_date, generated_time, is_cash)
+    
+    # Metrics
+    st.markdown('<div class="subheader">📈 Performance Metrics</div>', unsafe_allow_html=True)
+    render_metrics(metrics)
+    
+    # Logic and training info
+    st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        render_logic_card(logic)
+    with col2:
+        st.markdown(f'''
+            <div class="metric-card">
+                <div class="metric-label">Training Data</div>
+                <div style="font-size: 14px; margin-top: 10px; text-align: left;">
+                    Period: {mode_data.get('training_start', 'N/A')} to {mode_data.get('training_end', 'N/A')}<br>
+                    Observations: {mode_data.get('training_data_points', 0)}<br>
+                    Sortino Fitness: {format_fitness(mode_data.get('fitness', 0))}
+                </div>
+            </div>
+        ''', unsafe_allow_html=True)
+
 def render_universe(data, universe_name):
+    """Render a single universe with two sub-tabs: Daily and Global."""
     if not data:
         st.warning("No data loaded.")
         return
@@ -102,111 +163,23 @@ def render_universe(data, universe_name):
         st.warning(f"No data available for {universe_name}.")
         return
     
-    signal_date = get_next_trading_day()
-    generated_time = datetime.now().strftime("%H:%M UTC")
+    tab_daily, tab_global = st.tabs(["📅 Daily Trading (504d)", "🌍 Global Training (2008‑YTD)"])
     
-    tab_fixed, tab_shrinking = st.tabs([
-        "📊 Fixed Dataset (2008-2026YTD)",
-        "🔄 Shrinking Consensus (2008-2024)"
-    ])
+    with tab_daily:
+        render_mode_tab(universe_data.get('daily'), "Daily Trading")
     
-    with tab_fixed:
-        fixed = universe_data.get('fixed_dataset')
-        if fixed:
-            logic = fixed['logic']
-            metrics = fixed['metrics']
-            ticker = logic[3]
-            
-            render_hero_card(ticker, 100.0, signal_date, generated_time)
-            st.markdown('<div class="subheader">📈 Performance Metrics</div>', unsafe_allow_html=True)
-            render_metrics(metrics)
-            
-            st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown(f'''
-                    <div class="metric-card">
-                        <div class="metric-label">Strategy Logic</div>
-                        <div style="font-size: 14px; margin-top: 10px; text-align: left;">
-                            If {logic[0]} {logic[1]} {logic[2]:.2f}<br>
-                            Then buy {logic[3]} for {logic[4]} days
-                        </div>
-                    </div>
-                ''', unsafe_allow_html=True)
-            with col2:
-                st.markdown(f'''
-                    <div class="metric-card">
-                        <div class="metric-label">Backtest Period</div>
-                        <div style="font-size: 24px; margin-top: 10px;">
-                            {fixed['start_year']} - {fixed['end_year']}
-                        </div>
-                    </div>
-                ''', unsafe_allow_html=True)
-        else:
-            st.info("Fixed dataset results not available yet. Run train.py to generate.")
-    
-    with tab_shrinking:
-        consensus = universe_data.get('consensus')
-        shrinking_windows = universe_data.get('shrinking_windows', [])
-        
-        if consensus and shrinking_windows:
-            ticker = consensus['etf']
-            conviction = consensus['conviction']
-            metrics = consensus['metrics']
-            
-            render_hero_card(ticker, conviction, signal_date, generated_time)
-            
-            st.markdown('<div class="subheader">📊 Consensus Performance Metrics</div>', unsafe_allow_html=True)
-            render_metrics(metrics)
-            
-            st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.markdown(f'''
-                    <div class="metric-card">
-                        <div class="metric-label">Windows Analyzed</div>
-                        <div style="font-size: 32px;">{consensus['num_windows']}</div>
-                    </div>
-                ''', unsafe_allow_html=True)
-            with col2:
-                st.markdown(f'''
-                    <div class="metric-card">
-                        <div class="metric-label">Windows Picking {ticker}</div>
-                        <div style="font-size: 32px;">{consensus['consensus_windows']}</div>
-                    </div>
-                ''', unsafe_allow_html=True)
-            with col3:
-                st.markdown(f'''
-                    <div class="metric-card">
-                        <div class="metric-label">Conviction Score</div>
-                        <div style="font-size: 32px;">{conviction:.0f}%</div>
-                    </div>
-                ''', unsafe_allow_html=True)
-            
-            with st.expander("📋 View All Shrinking Window Results"):
-                window_data = []
-                for window in shrinking_windows:
-                    fitness_val = window['fitness']
-                    fitness_display = format_fitness(fitness_val)
-                    
-                    window_data.append({
-                        'Window': f"{window['start_year']}-{window['end_year']}",
-                        'ETF': window['logic'][3],
-                        'Fitness': fitness_display,
-                        'Ann Return': f"{window['metrics']['annual_return']:.1f}%",
-                        'Sharpe': f"{window['metrics']['sharpe']:.2f}"
-                    })
-                st.dataframe(pd.DataFrame(window_data), use_container_width=True)
-        else:
-            st.info("Shrinking windows consensus not available yet. Run train.py to generate.")
+    with tab_global:
+        render_mode_tab(universe_data.get('global'), "Global Training")
 
+# -----------------------------------------------------------------------
+# Main App
 st.markdown('<h1 style="margin-bottom:0;">P2-ETF-GENETIC-ALGO</h1>', unsafe_allow_html=True)
-st.markdown('<p style="color:#5E6271; margin-bottom: 30px;">Evolutionary ETF Predictor · Genetic Algorithm Optimization · Multi-Horizon Macro Signals</p>', unsafe_allow_html=True)
+st.markdown('<p style="color:#5E6271; margin-bottom: 30px;">Evolutionary ETF Predictor · Walk‑Forward Sortino Fitness · Daily & Global Modes</p>', unsafe_allow_html=True)
 
 data = load_results()
 
 if data:
-    tab_fi, tab_eq = st.tabs(["🌊 Option A — Fixed Income / Alternatives", "⚡ Option B — Equity Sectors"])
+    tab_fi, tab_eq = st.tabs(["🌊 Fixed Income / Alternatives", "⚡ Equity Sectors"])
     
     with tab_fi:
         render_universe(data, "FI")
